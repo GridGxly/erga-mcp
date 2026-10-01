@@ -9,7 +9,7 @@ from ddgs import DDGS
 from ddgs.exceptions import DDGSException
 from scrapling.parser import Selector
 
-from erga_mcp.integrations.http import fetch_public_page
+from erga_mcp.integrations.http import DEFAULT_USER_AGENT, fetch_public_page
 
 _SPACE = re.compile(r"\s+")
 _MAX_OUTPUT_CHARACTERS = 50_000
@@ -76,13 +76,19 @@ def _public_links(page: Selector, base_url: str, *, maximum: int) -> tuple[str, 
     return tuple(links)
 
 
-def extract_page(url: str, *, css_selector: str, max_characters: int = 8_000) -> str:
+def extract_page(
+    url: str,
+    *,
+    css_selector: str,
+    max_characters: int = 8_000,
+    user_agent: str = DEFAULT_USER_AGENT,
+) -> str:
     """Fetch one public page and return bounded visible text from an explicit CSS selection."""
     if not css_selector.strip():
         raise ValueError("css_selector must not be empty")
     if not 1 <= max_characters <= _MAX_OUTPUT_CHARACTERS:
         raise ValueError(f"max_characters must be between 1 and {_MAX_OUTPUT_CHARACTERS}")
-    page = Selector(fetch_public_page(url))
+    page = Selector(fetch_public_page(url, user_agent=user_agent))
     text = _compact(page.css(f"{css_selector} *::text").getall())
     if not text:
         raise ValueError("CSS selector did not match readable visible text")
@@ -94,6 +100,7 @@ def scrape_page(
     *,
     max_characters: int = 12_000,
     max_links: int = 20,
+    user_agent: str = DEFAULT_USER_AGENT,
 ) -> ScrapedPage:
     """Fetch and parse one public page without browser automation or anti-bot bypassing.
 
@@ -105,7 +112,7 @@ def scrape_page(
     if not 0 <= max_links <= _MAX_LINKS:
         raise ValueError(f"max_links must be between 0 and {_MAX_LINKS}")
 
-    page = Selector(fetch_public_page(url))
+    page = Selector(fetch_public_page(url, user_agent=user_agent))
     title = _compact(page.css("title::text").getall()) or None
     text = _visible_text(page)
     if not text:

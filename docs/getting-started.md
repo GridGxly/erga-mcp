@@ -484,7 +484,10 @@ multi-line bullets but prevents publication when a final line contains only one 
 configured `max_pages` is enforced with the
 same pure-Python PDF parser on macOS, Linux, and Windows.
 Before ranking, the fetcher keeps visible official job text and bounded structured job metadata but
-removes scripts, styles, navigation, and footer content. Relevance matching is boundary-aware and
+removes scripts, styles, navigation, and footer content. Fetches send a conventional desktop-browser
+`User-Agent` (override it with `[fetch] user_agent`). A host that already holds the posting text,
+for example from its own browser, can pass it to `intake_job_url` as `job_text`; Erga sanitizes and
+validates that text the same way instead of fetching. Relevance matching is boundary-aware and
 does not treat substrings inside unrelated words as skill matches.
 The router also calls the host's generic `web_search` tool for a Reddit/community query and a broad
 company/role query, then records those results separately as unverified secondary research. This

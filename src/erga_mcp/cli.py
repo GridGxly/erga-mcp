@@ -1109,7 +1109,7 @@ def _render_application_notes(application: Application, package_dir: Path | None
     return rendered
 
 
-def _tailor_job_input(args: argparse.Namespace) -> tuple[str, str]:
+def _tailor_job_input(args: argparse.Namespace, *, user_agent: str) -> tuple[str, str]:
     """Resolve exactly one safe job source for both friendly and advanced CLI routes."""
     sources = [
         bool(getattr(args, "job_url", None)),
@@ -1120,7 +1120,7 @@ def _tailor_job_input(args: argparse.Namespace) -> tuple[str, str]:
         raise ValueError("provide exactly one job source: a job link, --job-text, or --job-file")
     job_url = getattr(args, "job_url", None)
     if job_url:
-        return fetch_job_snapshot(str(job_url)), str(job_url)
+        return fetch_job_snapshot(str(job_url), user_agent=user_agent), str(job_url)
     job_file = getattr(args, "job_file", None)
     if job_file is not None:
         path = Path(job_file).expanduser().absolute()
@@ -2106,7 +2106,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             settings = load_config(args.config).resume
         if settings.template_path is None:
             raise ValueError("resume template could not be generated from the approved master")
-        snapshot, job_source = _tailor_job_input(args)
+        snapshot, job_source = _tailor_job_input(args, user_agent=config.fetch.user_agent)
         research = analyze_job_snapshot(snapshot, job_url=job_source)
         if args.company or args.role:
             research = replace(

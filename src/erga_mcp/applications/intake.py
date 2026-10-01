@@ -7,7 +7,7 @@ from urllib.parse import urlsplit
 
 from erga_mcp.applications.research import build_job_snapshot
 from erga_mcp.applications.role_profile import RoleProfile, role_profile_from_text
-from erga_mcp.integrations.http import fetch_public_page
+from erga_mcp.integrations.http import DEFAULT_USER_AGENT, MAX_JOB_PAGE_BYTES, fetch_public_page
 from erga_mcp.models import Evidence
 
 _WORD = re.compile(r"[a-zA-Z][a-zA-Z0-9+#.-]{2,}")
@@ -59,20 +59,31 @@ def _is_shopify_careers_url(job_url: str) -> bool:
     ) and parsed.path.casefold().startswith("/careers/")
 
 
-def fetch_job_snapshot(job_url: str) -> str:
+def job_snapshot_from_text(text: str, *, job_url: str) -> str:
+    """Sanitize caller-supplied page text or HTML exactly like a fetched job page.
+
+    The supplied text is untrusted data. It receives the same size bound, visible-text
+    extraction, and readable-content check as a page Erga fetched itself.
+    """
+    if len(text.encode("utf-8")) > MAX_JOB_PAGE_BYTES:
+        raise ValueError("job text exceeds the 2 MiB snapshot limit")
+    snapshot = build_job_snapshot(text)
+    if _is_shopify_careers_url(job_url):
+        embedded = _shopify_embedded_job_text(text)
+        if embedded:
+            snapshot = "\n\n".join(part for part in (snapshot, embedded) if part.strip())
+    if not snapshot:
+        raise ValueError("job page did not contain readable text")
+    return snapshot
+
+
+def fetch_job_snapshot(job_url: str, *, user_agent: str = DEFAULT_USER_AGENT) -> str:
     """Retrieve a job page as untrusted text within one 30-second deadline.
 
     Direct pinned sockets intentionally ignore ambient HTTP proxy variables for SSRF safety.
     """
-    page = fetch_public_page(job_url)
-    text = build_job_snapshot(page)
-    if _is_shopify_careers_url(job_url):
-        embedded = _shopify_embedded_job_text(page)
-        if embedded:
-            text = "\n\n".join(part for part in (text, embedded) if part.strip())
-    if not text:
-        raise ValueError("job page did not contain readable text")
-    return text
+    page = fetch_public_page(job_url, user_agent=user_agent)
+    return job_snapshot_from_text(page, job_url=job_url)
 
 
 def select_relevant_evidence(

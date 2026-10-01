@@ -162,8 +162,13 @@ and preserves the original hostname for TLS certificate verification. It re-reso
 each redirect, shares one 30-second fetch budget, allows only text/HTML/JSON responses, and caps the
 response at 2 MiB. The pinned transport intentionally ignores ambient HTTP proxy variables; proxy-
 only corporate networks must use an explicitly reviewed future adapter rather than silently
-weakening SSRF controls. Stored snapshots retain visible posting text and bounded structured job
-metadata while removing executable scripts, styles, navigation, and page chrome. Imported page text
+weakening SSRF controls. Requests identify themselves with a conventional desktop-browser
+`User-Agent` and `Accept` headers (`[fetch] user_agent` overrides the string); Erga still does not
+run page JavaScript, solve CAPTCHAs, rotate proxies, or otherwise bypass bot challenges. When an
+MCP host already holds the posting text, `intake_job_url` accepts it as `job_text` and applies the
+same size bound, visible-text extraction, and job-source validation instead of fetching. Stored
+snapshots retain visible posting text and bounded structured job metadata while removing
+executable scripts, styles, navigation, and page chrome. Imported or host-supplied page text
 remains data and is never evaluated as an instruction.
 
 Obsidian import is read-only, requires an explicitly configured vault root, rejects paths outside that root, and creates unapproved evidence candidates. New résumé claims may reference approved evidence only. Manual section proposals must map every authored bullet to one materially supporting supplied evidence record; numbers and explicit technologies must occur in that same record. When MCP client sampling is enabled, automatic job tailoring may synthesize project-bullet wording from bounded approved bullets and authenticated authored-Git evidence. Every bullet must cite project-scoped evidence IDs. Server-side checks reject unsupported numbers, evidence from another project, raw Git accounting prose, unsafe LaTeX, character overflow, and rendered line overflow. Optional lead-verb uniqueness is enforced when configured. Sampling receives no ambient MCP context. Clients can disable sampling and retain deterministic approved-copy tailoring.

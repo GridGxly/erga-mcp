@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from erga_mcp.config import DEFAULT_CONFIG, load_config
+from erga_mcp.integrations.http import DEFAULT_USER_AGENT
 from erga_mcp.portfolio.roots import detected_portfolio_root
 
 
@@ -296,6 +297,24 @@ project_count = 3
             config = load_config(config_path)
 
             self.assertFalse(config.resume.require_unique_lead_verbs)
+
+    def test_fetch_user_agent_defaults_to_a_browser_string_and_is_configurable(self) -> None:
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.toml"
+            config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
+            self.assertEqual(load_config(config_path).fetch.user_agent, DEFAULT_USER_AGENT)
+            self.assertTrue(DEFAULT_USER_AGENT.startswith("Mozilla/5.0 "))
+
+            config_path.write_text(
+                '[fetch]\nuser_agent = " Example Browser/1.0 "\n', encoding="utf-8"
+            )
+            self.assertEqual(load_config(config_path).fetch.user_agent, "Example Browser/1.0")
+
+            config_path.write_text(
+                '[fetch]\nuser_agent = "Example\\nInjected: header"\n', encoding="utf-8"
+            )
+            with self.assertRaisesRegex(ValueError, "fetch user_agent"):
+                load_config(config_path)
 
     def test_rejects_invalid_minimum_page_fill_ratio(self) -> None:
         with TemporaryDirectory() as directory:

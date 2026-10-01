@@ -11,13 +11,23 @@ from threading import Lock, Thread
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
-_MAX_JOB_PAGE_BYTES = 2 * 1024 * 1024
+MAX_JOB_PAGE_BYTES = 2 * 1024 * 1024
 _ALLOWED_JOB_CONTENT_TYPES = frozenset(
     {"application/json", "application/xhtml+xml", "text/html", "text/plain"}
 )
 _JOB_REDIRECT_CODES = frozenset({301, 302, 303, 307, 308})
 _MAX_JOB_REDIRECTS = 5
 _JOB_FETCH_TIMEOUT_SECONDS = 30
+# Some careers sites refuse clients that do not identify as a browser before serving the posting.
+# These are ordinary request headers, not a CAPTCHA, JavaScript-challenge, or proxy bypass.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
+_BROWSER_ACCEPT_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 class _JobFetchDeadlineExceeded(TimeoutError):
@@ -358,6 +368,8 @@ def _request_job_page(
     resolved_url: _ResolvedJobURL,
     deadline: float,
     cancellation: _FetchCancellation,
+    *,
+    user_agent: str,
 ) -> tuple[HTTPConnection, HTTPResponse, socket.socket]:
     if resolved_url.scheme == "https":
         connection: HTTPConnection = _PinnedHTTPSConnection(
@@ -378,7 +390,7 @@ def _request_job_page(
         connection.request(
             "GET",
             resolved_url.request_target,
-            headers={"User-Agent": "erga-mcp/0.1"},
+            headers={"User-Agent": user_agent, **_BROWSER_ACCEPT_HEADERS},
         )
         _set_socket_deadline_timeout(active_socket, deadline)
         response = connection.getresponse()
@@ -406,12 +418,12 @@ def _read_job_payload(
             declared_length = int(content_length)
         except ValueError:
             declared_length = None
-        if declared_length is not None and declared_length > _MAX_JOB_PAGE_BYTES:
+        if declared_length is not None and declared_length > MAX_JOB_PAGE_BYTES:
             raise ValueError("job page exceeds the 2 MiB snapshot limit")
     _set_socket_deadline_timeout(network_socket, deadline)
-    payload = response.read(_MAX_JOB_PAGE_BYTES + 1)
+    payload = response.read(MAX_JOB_PAGE_BYTES + 1)
     _remaining_timeout(deadline)
-    if len(payload) > _MAX_JOB_PAGE_BYTES:
+    if len(payload) > MAX_JOB_PAGE_BYTES:
         raise ValueError("job page exceeds the 2 MiB snapshot limit")
     charset = response.headers.get_content_charset() or "utf-8"
     return payload.decode(charset, errors="replace")
@@ -421,6 +433,8 @@ def _fetch_public_page_with_deadline(
     job_url: str,
     deadline: float,
     cancellation: _FetchCancellation,
+    *,
+    user_agent: str,
 ) -> str:
     current_url = job_url
     redirects_followed = 0
@@ -430,6 +444,7 @@ def _fetch_public_page_with_deadline(
             resolved_url,
             deadline,
             cancellation,
+            user_agent=user_agent,
         )
         try:
             if response.status in _JOB_REDIRECT_CODES:
@@ -457,11 +472,12 @@ def _fetch_public_page_with_deadline(
     return html
 
 
-def fetch_public_page(page_url: str) -> str:
+def fetch_public_page(page_url: str, *, user_agent: str = DEFAULT_USER_AGENT) -> str:
     """Safely retrieve a public HTML/text page using pinned, validated network connections.
 
     This primitive is intentionally bounded and does not use browser automation, proxies, or
-    anti-bot bypasses. Callers must treat the returned page as untrusted data.
+    anti-bot bypasses; it only identifies itself with ordinary browser request headers. Callers
+    must treat the returned page as untrusted data.
     """
     deadline = time.monotonic() + _JOB_FETCH_TIMEOUT_SECONDS
     cancellation = _FetchCancellation()
@@ -470,7 +486,12 @@ def fetch_public_page(page_url: str) -> str:
     def fetch() -> None:
         try:
             result_queue.put(
-                (True, _fetch_public_page_with_deadline(page_url, deadline, cancellation))
+                (
+                    True,
+                    _fetch_public_page_with_deadline(
+                        page_url, deadline, cancellation, user_agent=user_agent
+                    ),
+                )
             )
         except BaseException as error:
             result_queue.put((False, error))

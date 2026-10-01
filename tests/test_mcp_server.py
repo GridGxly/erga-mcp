@@ -20,6 +20,7 @@ from starlette.testclient import TestClient
 
 from erga_mcp.applications.identity import metadata_from_url
 from erga_mcp.config import DEFAULT_CONFIG, load_config
+from erga_mcp.integrations.http import DEFAULT_USER_AGENT
 from erga_mcp.mcp.contracts import IntakeValidationResult
 from erga_mcp.mcp.server import (
     _ai_research_shortlist_ids,
@@ -2680,6 +2681,66 @@ Bottom of the approved master template.
             self.assertFalse(validate.called)
             self.assertFalse((root / "output" / "fall-2026" / "user-supplied-link").exists())
 
+    def test_intake_sanitizes_supplied_job_text_instead_of_fetching(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "resume.tex").write_text(
+                "\\section{Experience}\nVerified work.\n", encoding="utf-8"
+            )
+            config_path = root / "config.toml"
+            config_path.write_text(
+                DEFAULT_CONFIG.replace('template_path = ""', 'template_path = "resume.tex"')
+                .replace('user_agent = ""', 'user_agent = "Example Browser/1.0"')
+                .replace("max_pages = 1", "max_pages = 0"),
+                encoding="utf-8",
+            )
+            server = build_server(config_path)
+            job_url = "https://jobs.ashbyhq.com/example/00000000-0000-0000-0000-000000000000"
+            job_text = (
+                "<html><head><script>const tracker = 'JavaScript';</script></head><body>"
+                "<main><h1>Python Software Engineering Internship</h1>"
+                "<p>Build Python services.</p></main></body></html>"
+            )
+            validation = LatexValidation(command=("latexmk",), returncode=0, stdout="", stderr="")
+
+            def compile_success(proposal_path: Path, **_: Any) -> LatexValidation:
+                proposal_path.with_suffix(".pdf").write_bytes(b"synthetic pdf")
+                return validation
+
+            with (
+                patch("erga_mcp.mcp.server.fetch_job_snapshot") as fetch,
+                patch(
+                    "erga_mcp.mcp.server.validate_latex_proposal",
+                    side_effect=compile_success,
+                ),
+            ):
+                call: Any = asyncio.run(
+                    server.call_tool("intake_job_url", {"job_url": job_url, "job_text": job_text})
+                )
+                with self.assertRaisesRegex(Exception, "cannot be combined"):
+                    asyncio.run(
+                        server.call_tool(
+                            "intake_job_url",
+                            {
+                                "job_url": job_url,
+                                "job_text": job_text,
+                                "tailoring_plan_id": "plan",
+                            },
+                        )
+                    )
+
+            result = cast(dict[str, Any], call.structured_content)
+            fetch.assert_not_called()
+            self.assertEqual(result["reused"], False)
+            saved_snapshot = (
+                Path(result["package_dir"]) / "research" / "job-description.txt"
+            ).read_text(encoding="utf-8")
+            self.assertIn(
+                "Python Software Engineering Internship Build Python services.", saved_snapshot
+            )
+            self.assertNotIn("JavaScript", saved_snapshot)
+            self.assertNotIn("<script>", saved_snapshot)
+
     def test_intakes_one_url_end_to_end_and_safely_reuses_an_exact_repeat(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
@@ -2733,7 +2794,7 @@ Bottom of the approved master template.
             self.assertEqual(Path(first["validation"]["pdf"]).name, "Candidate_Resume.pdf")
             self.assertEqual(second["validation"]["pdf"], first["validation"]["pdf"])
             self.assertTrue(Path(first["validation"]["pdf"]).is_file())
-            fetch.assert_called_once_with(job_url)
+            fetch.assert_called_once_with(job_url, user_agent=DEFAULT_USER_AGENT)
             validate.assert_called_once()
             self.assertEqual(template.read_text(encoding="utf-8"), original)
             for key in {
@@ -3074,7 +3135,7 @@ Bottom of the approved master template.
             self.assertIn("Project inventory is not configured", first["integration_warnings"][0])
             self.assertEqual(first["tracker_notes"], second["tracker_notes"])
             self.assertEqual(first["application_id"], second["application_id"])
-            fetch.assert_called_once_with(job_url)
+            fetch.assert_called_once_with(job_url, user_agent=DEFAULT_USER_AGENT)
 
             note = Path(first["tracker_notes"][0])
             self.assertEqual(note.parent.name, "Fall 2026 Application Notes")

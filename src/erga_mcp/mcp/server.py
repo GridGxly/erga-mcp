@@ -47,7 +47,11 @@ from erga_mcp.applications.identity import (
 from erga_mcp.applications.identity import (
     selected_evidence_ids as _selected_evidence_ids,
 )
-from erga_mcp.applications.intake import fetch_job_snapshot, select_relevant_evidence
+from erga_mcp.applications.intake import (
+    fetch_job_snapshot,
+    job_snapshot_from_text,
+    select_relevant_evidence,
+)
 from erga_mcp.applications.lookup import select_tracked_application
 from erga_mcp.applications.research import (
     JobResearch,
@@ -199,7 +203,9 @@ bullets with per-bullet evidence IDs. Deterministic validators reject unsupporte
 cross-project citations, duplicate lead verbs, unsafe LaTeX, and rendered overflow before the tool
 writes a reviewable proposal/diff/per-claim provenance report, compiles and page-validates the exact
 attachment PDF, and synchronizes an enabled local Obsidian tracker. Clients without sampling use a
-deterministic approved-copy fallback.
+deterministic approved-copy fallback. If the host already holds the posting text, for example
+from its own browser when the careers site refuses direct fetches, pass it as job_text; Erga then
+sanitizes and validates that text instead of fetching the URL.
 It never submits an application, sends a message, changes the master resume, or writes to a remote
 service. If the user explicitly asks to summarize only or not to run intake, respect that request
 and do not call this tool."""
@@ -1965,7 +1971,7 @@ def _upgrade_existing_tailoring(
     template_refreshed = False
     if existing_tailoring_version != TAILORING_VERSION:
         try:
-            refreshed_snapshot = fetch_job_snapshot(job_url)
+            refreshed_snapshot = fetch_job_snapshot(job_url, user_agent=config.fetch.user_agent)
         except (OSError, RuntimeError, ValueError) as error:
             raise RuntimeError(
                 "legacy tailoring upgrade requires a fresh sanitized job snapshot; "
@@ -2570,7 +2576,7 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
                 store.save_tailoring_plan(migrated)
                 existing = migrated
             return public_tailoring_plan(existing)
-        snapshot = fetch_job_snapshot(job_url)
+        snapshot = fetch_job_snapshot(job_url, user_agent=config.fetch.user_agent)
         research = analyze_job_snapshot(snapshot, job_url=job_url)
         approved = [item for item in store.list_evidence() if item.approved]
         candidates = tuple(
@@ -2680,8 +2686,21 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
                 )
             ),
         ] = "",
+        job_text: Annotated[
+            str,
+            Field(
+                description=(
+                    "Optional posting text or HTML the host already holds, for example from its "
+                    "own browser when the careers site refuses direct fetches. Erga sanitizes "
+                    "and validates it exactly like a fetched page instead of fetching job_url. "
+                    "Omit it to fetch the URL."
+                )
+            ),
+        ] = "",
     ) -> IntakeJobResult | InputRequiredResult:
         """Run the primary end-to-end local intake for one pasted job URL."""
+        if job_text.strip() and tailoring_plan_id:
+            raise ValueError("job_text cannot be combined with tailoring_plan_id")
         tailoring_plan = None
         preferences = None
         if tailoring_plan_id:
@@ -2719,6 +2738,7 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
                     cycle=legacy_package.parent.name,
                     application_slug=legacy_package.name,
                     tailoring_plan_id=tailoring_plan_id,
+                    job_text=job_text,
                     ctx=ctx,
                 )
             except Exception:
@@ -2788,15 +2808,15 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
             master_path=config.resume.master_path,
             template_path=config.resume.template_path,
         )
-        snapshot = (
-            tailoring_plan.job_snapshot
-            if tailoring_plan is not None
-            else await anyio.to_thread.run_sync(
-                fetch_job_snapshot,
-                job_url,
+        if tailoring_plan is not None:
+            snapshot = tailoring_plan.job_snapshot
+        elif job_text.strip():
+            snapshot = job_snapshot_from_text(job_text, job_url=job_url)
+        else:
+            snapshot = await anyio.to_thread.run_sync(
+                partial(fetch_job_snapshot, job_url, user_agent=config.fetch.user_agent),
                 abandon_on_cancel=True,
             )
-        )
         source_research = await anyio.to_thread.run_sync(
             partial(analyze_job_snapshot, snapshot, job_url=job_url),
             abandon_on_cancel=True,
@@ -3082,7 +3102,12 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
         url: str, max_characters: StrictInt = 12_000, max_links: StrictInt = 20
     ) -> dict[str, object]:
         """Return bounded public-page text and discovered links via Erga's safe fetch boundary."""
-        result = scrape_page(url, max_characters=max_characters, max_links=max_links)
+        result = scrape_page(
+            url,
+            max_characters=max_characters,
+            max_links=max_links,
+            user_agent=config.fetch.user_agent,
+        )
         return {
             "url": result.url,
             "title": result.title,
@@ -3110,7 +3135,12 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
         return {
             "url": url,
             "css_selector": css_selector,
-            "text": extract_page(url, css_selector=css_selector, max_characters=max_characters),
+            "text": extract_page(
+                url,
+                css_selector=css_selector,
+                max_characters=max_characters,
+                user_agent=config.fetch.user_agent,
+            ),
             "untrusted": True,
         }
 
@@ -3322,8 +3352,7 @@ def build_server(config_path: Path, *, store_factory: StoreFactory | None = None
         if config.resume.template_path is None or config.vault_path is None:
             raise ValueError("resume template_path and vault_path must be configured")
         snapshot = await anyio.to_thread.run_sync(
-            fetch_job_snapshot,
-            job_url,
+            partial(fetch_job_snapshot, job_url, user_agent=config.fetch.user_agent),
             abandon_on_cancel=True,
         )
         research = await anyio.to_thread.run_sync(

@@ -10,8 +10,12 @@ from threading import Event, Thread
 from typing import Any
 from unittest.mock import MagicMock, call, patch
 
-from erga_mcp.applications.intake import fetch_job_snapshot, select_relevant_evidence
-from erga_mcp.integrations.http import _validate_public_job_url
+from erga_mcp.applications.intake import (
+    fetch_job_snapshot,
+    job_snapshot_from_text,
+    select_relevant_evidence,
+)
+from erga_mcp.integrations.http import DEFAULT_USER_AGENT, _validate_public_job_url
 from erga_mcp.models import Evidence
 
 
@@ -94,6 +98,63 @@ class JobIntakeTests(unittest.TestCase):
         self.assertEqual(snapshot, "Software Intern Build systems.")
         resolver.assert_called_once_with("jobs.example.test", 80, type=socket.SOCK_STREAM)
         network_socket.connect.assert_called_once_with(("93.184.216.34", 80))
+
+    def test_fetch_identifies_as_a_browser_and_honours_a_configured_user_agent(self) -> None:
+        body = b"<p>Browser-gated role</p>"
+        response = (
+            b"HTTP/1.1 200 OK\r\n"
+            b"Content-Type: text/html\r\n"
+            + f"Content-Length: {len(body)}\r\n".encode()
+            + b"Connection: close\r\n\r\n"
+            + body
+        )
+        cases = (
+            ({}, DEFAULT_USER_AGENT),
+            ({"user_agent": "Example Browser/1.0"}, "Example Browser/1.0"),
+        )
+        for kwargs, expected_user_agent in cases:
+            with self.subTest(user_agent=expected_user_agent):
+                network_socket = self._socket_with_response(response)
+                with (
+                    patch(
+                        "erga_mcp.integrations.http.socket.getaddrinfo",
+                        return_value=self._public_resolution("93.184.216.34", 80),
+                    ),
+                    patch(
+                        "erga_mcp.integrations.http.socket.socket",
+                        return_value=network_socket,
+                    ),
+                ):
+                    snapshot = fetch_job_snapshot("http://jobs.example.test/role", **kwargs)
+
+                self.assertEqual(snapshot, "Browser-gated role")
+                sent = b"".join(
+                    bytes(call_args.args[0]) for call_args in network_socket.sendall.call_args_list
+                )
+                self.assertIn(f"User-Agent: {expected_user_agent}\r\n".encode(), sent)
+                self.assertIn(b"Accept: text/html,application/xhtml+xml", sent)
+                self.assertIn(b"Accept-Language: en-US,en;q=0.9\r\n", sent)
+                self.assertNotIn(b"erga-mcp/0.1", sent)
+
+    def test_supplied_job_text_is_sanitized_like_a_fetched_page(self) -> None:
+        url = "https://jobs.example.test/role"
+        html = (
+            "<html><head><script>const secret = 'JavaScript';</script></head>"
+            "<body><nav>Menu</nav><main><h1>Systems Intern</h1><p>Build C++ services.</p></main>"
+            "</body></html>"
+        )
+
+        self.assertEqual(
+            job_snapshot_from_text(html, job_url=url), "Systems Intern Build C++ services."
+        )
+        self.assertEqual(
+            job_snapshot_from_text("Systems Intern\n\nBuild C++ services.", job_url=url),
+            "Systems Intern Build C++ services.",
+        )
+        with self.assertRaisesRegex(ValueError, "readable text"):
+            job_snapshot_from_text("<html><script>only()</script></html>", job_url=url)
+        with self.assertRaisesRegex(ValueError, "2 MiB snapshot limit"):
+            job_snapshot_from_text("x" * (2 * 1024 * 1024 + 1), job_url=url)
 
     def test_fetch_snapshot_excludes_page_scripts_but_preserves_job_metadata(self) -> None:
         body = b"""

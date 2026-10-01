@@ -5,6 +5,11 @@
 data_dir = "state"
 vault_path = ""
 
+[fetch]
+# Some careers sites refuse clients that do not identify as a browser. Empty uses Erga's built-in
+# desktop-browser User-Agent; this never bypasses CAPTCHAs, JavaScript challenges, or logins.
+user_agent = ""
+
 [mail]
 # Supported read-only adapters: "zoho" and "gmail". Gmail uses an already-authenticated gws CLI.
 provider = "zoho"

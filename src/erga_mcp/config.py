@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from erga_mcp.integrations.http import DEFAULT_USER_AGENT
+
 DEFAULT_CONFIG_PATH = Path.home() / ".config" / "erga-mcp" / "config.toml"
 
 DEFAULT_CONFIG = """# Erga MCP stores private state outside this repository.
@@ -67,6 +69,12 @@ latexmk = "latexmk"
 # A relative writing_sample_path resolves from vault_path when configured.
 template_path = ""
 writing_sample_path = ""
+
+[fetch]
+# Headers sent when Erga fetches a public job page. Some careers sites refuse clients that do not
+# identify as a browser, so an empty value uses Erga's built-in desktop-browser User-Agent. This
+# never bypasses CAPTCHAs, JavaScript challenges, or logins.
+user_agent = ""
 
 [mail]
 # Provider selection is explicit; each connector is independently authorized.
@@ -144,6 +152,11 @@ class CoverLetterSettings:
 
 
 @dataclass(frozen=True)
+class FetchSettings:
+    user_agent: str
+
+
+@dataclass(frozen=True)
 class TrackerSettings:
     enabled: bool
     tracker_dir: Path | None
@@ -179,6 +192,7 @@ class ErgaConfig:
     portfolio_roots: tuple[Path, ...]
     resume: ResumeSettings
     cover_letter: CoverLetterSettings
+    fetch: FetchSettings
     tracker: TrackerSettings
     orbit: OrbitSettings
     contact_outputs: tuple[ContactOutputSettings, ...]
@@ -350,6 +364,7 @@ def load_config(config_path: Path) -> ErgaConfig:
     paths = _section(document, "paths")
     mail = _section(document, "mail")
     cover_letter = _section(document, "cover_letter")
+    fetch = _section(document, "fetch")
     tracking = _section(document, "tracking")
     orbit = _section(document, "orbit")
     contacts = _section(document, "contacts")
@@ -375,6 +390,9 @@ def load_config(config_path: Path) -> ErgaConfig:
         resolved = candidate.resolve(strict=True)
         if resolved not in portfolio_roots:
             portfolio_roots.append(resolved)
+    user_agent = str(fetch.get("user_agent", "")).strip() or DEFAULT_USER_AGENT
+    if not user_agent.isprintable():
+        raise ValueError("fetch user_agent must be a single printable line")
     cover_letter_template = str(cover_letter.get("template_path", "")).strip()
     cover_letter_sample = str(cover_letter.get("writing_sample_path", "")).strip()
     tracker_value = str(tracking.get("tracker_dir", "")).strip()
@@ -456,6 +474,7 @@ def load_config(config_path: Path) -> ErgaConfig:
             if cover_letter_sample
             else None,
         ),
+        fetch=FetchSettings(user_agent=user_agent),
         tracker=TrackerSettings(
             enabled=tracker_enabled, tracker_dir=tracker_dir, active_cycles=active_cycles
         ),
