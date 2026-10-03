@@ -227,6 +227,7 @@ _LEAD_VERB_ALTERNATIVES = {
         "Accelerated",
         "Streamlined",
     ),
+    "led": ("Directed", "Headed"),
     "optimized": (
         "Improved",
         "Accelerated",

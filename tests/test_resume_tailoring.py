@@ -1491,6 +1491,33 @@ Synthetic University
             self.assertFalse(report["constraints"]["lead_verbs"]["passed"])
             self.assertEqual(report["constraints"]["lead_verbs"]["rewrites"], [])
 
+    def test_a_second_led_bullet_is_rewritten_instead_of_blocking_the_proposal(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "resume.tex"
+            source.write_text(
+                _TEMPLATE.replace("Created visual", "Led visual").replace(
+                    "Implemented a real-time", "Led a real-time"
+                ),
+                encoding="utf-8",
+            )
+
+            result = create_automatic_resume_proposal(
+                resume_path=source,
+                output_dir=root / "artifacts",
+                job_description="Python FastAPI Docker",
+                evidence=[],
+                editable_sections=("experience", "projects"),
+                require_unique_lead_verbs=True,
+            )
+
+            proposed = result.proposal.proposed_tex_path.read_text(encoding="utf-8")
+            report = json.loads(result.proposal.claim_report_path.read_text(encoding="utf-8"))
+            self.assertEqual(proposed.count("Led "), 1)
+            self.assertIn("Directed a real-time", proposed)
+            self.assertEqual(result.constraint_violations, ())
+            self.assertTrue(report["constraints"]["lead_verbs"]["passed"])
+
     def test_duplicate_verbs_in_uneditable_sections_are_not_rewritten(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
