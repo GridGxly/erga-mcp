@@ -33,9 +33,11 @@ from erga_mcp.mcp.server import (
     _layout_safe_project_selection,
     _ModernSamplingRequired,
     _project_enrichment_for_tailoring,
+    _realign_git_project_research,
     _refresh_generated_package_template,
     _repeat_entry_patterns,
     _require_constraint_valid_proposal,
+    _require_git_research_alignment,
     _require_master_template_parity,
     _select_rendered_project_bullet_density,
     build_server,
@@ -1368,6 +1370,44 @@ Bottom of the approved master template.
         automatic = SimpleNamespace(constraint_violations=("duplicate lead verb 'built'",))
         with self.assertRaisesRegex(ValueError, "duplicate lead verb 'built'"):
             _require_constraint_valid_proposal(automatic)
+
+    def test_reordered_final_projects_reuse_their_git_research(self) -> None:
+        reports = tuple(
+            {"project_id": project_id, "title": project_id, "status": "verified"}
+            for project_id in ("one", "two", "three")
+        )
+        enrichment = GitProjectEnrichment((), (), reports, (), 3)
+        with TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config.toml"
+            config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
+            config = load_config(config_path)
+
+        with patch("erga_mcp.mcp.server.enrich_ranked_projects_from_git") as research:
+            realigned = _realign_git_project_research(
+                project_selection={"selected_ids": ["three", "one", "two"]},
+                enrichment=enrichment,
+                config=config,
+                store=SimpleNamespace(),
+                job_description="Synthetic role",
+            )
+
+        research.assert_not_called()
+        self.assertEqual(
+            [report["project_id"] for report in realigned.reports], ["three", "one", "two"]
+        )
+        _require_git_research_alignment({"selected_ids": ["three", "one", "two"]}, realigned)
+
+        with patch(
+            "erga_mcp.mcp.server.enrich_ranked_projects_from_git", return_value=enrichment
+        ) as research:
+            _realign_git_project_research(
+                project_selection={"selected_ids": ["one", "two"]},
+                enrichment=enrichment,
+                config=config,
+                store=SimpleNamespace(),
+                job_description="Synthetic role",
+            )
+        research.assert_called_once()
 
     def test_modern_streamable_http_discovery_is_stateless_and_origin_guarded(self) -> None:
         with TemporaryDirectory() as directory:

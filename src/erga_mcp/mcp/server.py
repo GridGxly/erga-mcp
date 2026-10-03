@@ -1652,8 +1652,18 @@ def _realign_git_project_research(
 ) -> GitProjectEnrichment:
     """Repair rare proposal fallbacks by researching the projects actually left in output."""
     selected_ids = _selected_project_ids(project_selection)
-    if selected_ids == _git_researched_project_ids(enrichment):
+    researched_ids = _git_researched_project_ids(enrichment)
+    if selected_ids == researched_ids:
         return enrichment
+    if (
+        selected_ids
+        and len(set(selected_ids)) == len(selected_ids) == len(researched_ids)
+        and set(selected_ids) == set(researched_ids)
+    ):
+        # The proposal only reordered the researched projects. Each project's research is
+        # independent of the others, so reorder the reports instead of researching again.
+        reports = {str(report["project_id"]): report for report in enrichment.reports}
+        return replace(enrichment, reports=tuple(reports[item] for item in selected_ids))
     if not selected_ids:
         return GitProjectEnrichment(
             candidates=(),
