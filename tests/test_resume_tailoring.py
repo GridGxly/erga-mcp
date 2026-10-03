@@ -12,7 +12,7 @@ from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
 from erga_mcp.models import Evidence
-from erga_mcp.portfolio.inventory import ProjectCandidate
+from erga_mcp.portfolio.inventory import ProjectCandidate, load_project_inventory
 from erga_mcp.resumes.artifacts import resume_item_texts, validate_single_line_resume_items
 from erga_mcp.resumes.tailoring import (
     TAILORING_VERSION,
@@ -964,6 +964,96 @@ Synthetic University
             proposed = result.proposal.proposed_tex_path.read_text(encoding="utf-8")
             self.assertIn(r"\href{https://example.test/stream}{\textbf{Stream Engine}}", proposed)
             self.assertIn(r"low-latency \textbf{Python} services", proposed)
+
+    def test_inventory_projects_keep_following_sections_on_their_own_lines(self) -> None:
+        # A master whose project entries sit directly under the heading, with no
+        # \resumeSubHeadingListStart wrapper. The inventory loader strips each block, so
+        # nothing but the assembler keeps \section{Technical Skills} at a line start.
+        template = _TEMPLATE.replace(
+            "\\section{Projects}\n\\resumeSubHeadingListStart\n", "\\section{Projects}\n"
+        ).replace(
+            "\\resumeSubHeadingListEnd\n\\section{Technical Skills}", "\\section{Technical Skills}"
+        )
+        self.assertNotIn("\\resumeSubHeadingListEnd\n\\section{Technical Skills}", template)
+
+        def block(title: str, technologies: str, bullets: tuple[str, ...]) -> str:
+            items = "".join(f"\\resumeItem{{{bullet}}}\n" for bullet in bullets)
+            heading = f"\\textbf{{{title}}} $|$ \\textit{{{technologies}}}"
+            return (
+                f"\\resumeProjectHeading{{{heading}}}{{}}\n"
+                f"\\resumeItemListStart\n{items}\\resumeItemListEnd\n"
+            )
+
+        projects = {
+            "sensor-hub": (
+                "Sensor Hub",
+                "C++, MCU",
+                (
+                    "Built C++ firmware for approved MCU sensor control.",
+                    "Validated sensor readings with approved hardware fixtures.",
+                ),
+            ),
+            "fleet-api": (
+                "Fleet API",
+                "Python, FastAPI",
+                (
+                    "Implemented a FastAPI service for approved fleet telemetry.",
+                    "Documented the telemetry endpoints for the synthetic team.",
+                ),
+            ),
+        }
+        evidence = [
+            Evidence(f"ev-{key}-{index}", f"synthetic/{key}", bullet, True, datetime.now(UTC))
+            for key, (_, _, bullets) in projects.items()
+            for index, bullet in enumerate(bullets)
+        ]
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "resume.tex"
+            source.write_text(template, encoding="utf-8")
+            inventory_path = root / "project-inventory.json"
+            inventory_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": key,
+                            "title": title,
+                            "latex": block(title, technologies, bullets),
+                            "evidence_ids": [f"ev-{key}-{i}" for i in range(len(bullets))],
+                            "bullet_evidence_ids": [[f"ev-{key}-{i}"] for i in range(len(bullets))],
+                            "tags": [item.strip() for item in technologies.split(",")],
+                        }
+                        for key, (title, technologies, bullets) in projects.items()
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            inventory = load_project_inventory(inventory_path, evidence)
+            self.assertTrue(all(not item.latex.endswith("\n") for item in inventory))
+
+            result = create_automatic_resume_proposal(
+                resume_path=source,
+                output_dir=root / "artifacts",
+                job_description=(
+                    "Required: C++ MCU firmware, sensor hardware, Python FastAPI telemetry."
+                ),
+                evidence=evidence,
+                editable_sections=("Projects", "Technical Skills"),
+                project_candidates=inventory,
+                project_count=2,
+                require_unique_lead_verbs=False,
+            )
+
+            proposed = result.proposal.proposed_tex_path.read_text(encoding="utf-8")
+            lines = proposed.splitlines()
+            self.assertEqual(lines.count("\\section{Technical Skills}"), 1)
+            self.assertEqual(
+                sum(line.startswith("\\resumeProjectHeading{") for line in lines),
+                proposed.count("\\resumeProjectHeading{"),
+            )
+            self.assertEqual(
+                sorted(result.project_selection["selected_ids"]), ["fleet-api", "sensor-hub"]
+            )
 
     def test_duplicate_lead_rewrite_selects_an_alternative_that_fits_the_layout(self) -> None:
         base = "Created a Python platform for deterministic project testing "

@@ -1419,8 +1419,15 @@ def _section_body(source: str, section_name: str) -> tuple[int, int, str]:
     return heading.end(), end, canonical
 
 
+def _ending_line(value: str) -> str:
+    return value if value.endswith("\n") else value + "\n"
+
+
 def _replace_section_body(source: str, section_name: str, body: str) -> str:
     start, end, _ = _section_body(source, section_name)
+    if end < len(source):
+        # The next \section heading is only recognized at the start of a line.
+        body = _ending_line(body)
     return source[:start] + body + source[end:]
 
 
@@ -2353,13 +2360,17 @@ def create_automatic_resume_proposal(
             template_project_section = proposed[start:end]
             prefix, _, suffix = _entry_ranges(template_project_section, "resumeProjectHeading")
             heading_contract = _infer_project_heading_contract(template_project_section)
+            # Inventory blocks are loaded stripped. Each one must end its own line, or the next
+            # project heading (or, without a list wrapper, the next \section) joins its last line.
             inventory_section = (
                 prefix
                 + "".join(
-                    _adapt_project_heading_structure(
-                        item.latex,
-                        heading_contract,
-                        fallback_technologies=item.tags,
+                    _ending_line(
+                        _adapt_project_heading_structure(
+                            item.latex,
+                            heading_contract,
+                            fallback_technologies=item.tags,
+                        )
                     )
                     for item in selected_projects
                 )
