@@ -128,7 +128,13 @@ def merge_github_project_catalogue(
                 git_repositories=(project.repository,),
             )
         )
-    return tuple(with_canonical_project_link(candidate) for candidate in (*enriched, *generated))
+    private = {project.repository.casefold() for project in discovered if project.private}
+    return tuple(
+        candidate
+        if candidate.git_repositories and candidate.git_repositories[0].casefold() in private
+        else with_canonical_project_link(candidate)
+        for candidate in (*enriched, *generated)
+    )
 
 
 def _latex_text(value: str) -> str:

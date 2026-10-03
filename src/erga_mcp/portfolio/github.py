@@ -23,6 +23,9 @@ class GitHubProject:
     description: str
     language: str
     topics: tuple[str, ...]
+    # A private repository is still researched, but a résumé never links to it: a reader
+    # would only reach GitHub's 404 page.
+    private: bool = False
 
 
 def _run(
@@ -131,6 +134,7 @@ def discover_github_projects(
                         if isinstance(topics, list)
                         else ()
                     ),
+                    private=item.get("private") is True,
                 )
             )
     projects.sort(key=lambda project: project.repository.casefold())

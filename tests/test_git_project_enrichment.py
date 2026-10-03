@@ -100,6 +100,20 @@ class GitProjectEnrichmentTests(unittest.TestCase):
             merged[0].latex,
         )
 
+    def test_a_private_repository_is_researched_but_never_linked(self) -> None:
+        curated = (_candidate("ctrl-arm", "Ctrl-ARM", ("c++",), ()),)
+        discovered = (
+            GitHubProject(
+                "example/ctrl-arm", "ctrl-arm", "Real-time controller", "C++", (), private=True
+            ),
+        )
+
+        merged = merge_github_project_catalogue(curated, discovered)
+
+        self.assertEqual(merged[0].git_repositories, ("example/ctrl-arm",))
+        self.assertNotIn(r"\href", merged[0].latex)
+        self.assertIn(r"\resumeProjectHeading{\textbf{Ctrl-ARM}}{}", merged[0].latex)
+
     def test_ranks_json_but_keeps_git_research_out_of_resume_copy(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)
