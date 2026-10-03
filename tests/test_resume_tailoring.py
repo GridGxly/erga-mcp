@@ -609,6 +609,37 @@ Synthetic University
             ["sensor-hub"],
         )
 
+    def test_a_project_trimmed_for_the_page_is_still_recognized(self) -> None:
+        def block(bullets: tuple[str, ...]) -> str:
+            items = "".join(f"\\resumeItem{{{bullet}}}\n" for bullet in bullets)
+            return (
+                "\\resumeProjectHeading{\\textbf{Sensor Hub}}{C++}\n"
+                f"\\resumeItemListStart\n{items}\\resumeItemListEnd\n"
+            )
+
+        bullets = (
+            "Built C++ firmware for approved MCU sensor control.",
+            "Validated sensor readings with approved hardware fixtures.",
+            "Documented the bring-up steps for the synthetic team.",
+        )
+        candidate = ProjectCandidate(
+            id="sensor-hub",
+            title="Sensor Hub",
+            latex=block(bullets),
+            evidence_ids=("ev_sensor",),
+            bullet_evidence_ids=(("ev_sensor",),) * 3,
+            tags=("c++",),
+        )
+        trimmed = (
+            "\n\\resumeSubHeadingListStart\n" + block(bullets[:2]) + "\\resumeSubHeadingListEnd\n"
+        )
+        foreign = trimmed.replace("Documented", "x").replace(
+            "Validated sensor readings", "Validated unrelated readings"
+        )
+
+        self.assertEqual(_projects_present_in_section(trimmed, (candidate,)), (candidate,))
+        self.assertEqual(_projects_present_in_section(foreign, (candidate,)), ())
+
     def test_adaptive_page_fill_prevents_elastic_whitespace_and_is_idempotent(self) -> None:
         compact = _SPARSE_TEMPLATE.replace("[10pt]", "[9pt]")
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import difflib
 import json
 import re
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -811,6 +812,15 @@ def _projects_present_in_section(
             signatures.append(tuple(words[1:]))
         return tuple(sorted(signatures))
 
+    def drawn_from(entry: str, candidate: ProjectCandidate) -> bool:
+        # Page packing may keep only some of a project's bullets; every bullet left must
+        # still be one of the project's own.
+        shown = Counter(bullet_signatures(entry))
+        available = Counter(bullet_signatures(candidate.latex))
+        if not shown:
+            return not available
+        return all(available[signature] >= count for signature, count in shown.items())
+
     for entry in entries:
         headings = _command_spans(entry, "resumeProjectHeading")
         if not headings:
@@ -828,7 +838,7 @@ def _projects_present_in_section(
                     or heading_text == _normalized(candidate.title)
                     or heading_text.startswith(f"{_normalized(candidate.title)} ")
                 )
-                and bullet_signatures(candidate.latex) == bullet_signatures(entry)
+                and drawn_from(entry, candidate)
             ),
             None,
         )
