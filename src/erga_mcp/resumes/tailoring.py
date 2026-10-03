@@ -329,6 +329,14 @@ def _normalized(value: str) -> str:
     return " ".join(_TOKEN.findall(latex_to_text(value).casefold()))
 
 
+_HREF_TARGET = re.compile(r"\\href\{[^{}]*\}")
+
+
+def _project_heading_title(content: str) -> str:
+    """A project heading's visible title; a linked title reads as its label, not its URL."""
+    return _normalized(_HREF_TARGET.sub("", content))
+
+
 def _terms(value: str) -> frozenset[str]:
     return frozenset(
         token
@@ -654,7 +662,7 @@ def classify_wrapped_resume_items(
         emphasized_titles = {
             _normalized(span.content) for span in _command_spans(heading.content, "textbf")
         }
-        heading_text = _normalized(heading.content)
+        heading_text = _project_heading_title(heading.content)
         matches = [
             candidate
             for candidate in candidates
@@ -755,7 +763,7 @@ def _prefer_master_project_blocks(
         headings = _command_spans(entry, "resumeProjectHeading")
         if not headings:
             continue
-        heading_text = _normalized(headings[0].content)
+        heading_text = _project_heading_title(headings[0].content)
         emphasized_titles = {
             _normalized(span.content) for span in _command_spans(headings[0].content, "textbf")
         }
@@ -807,7 +815,7 @@ def _projects_present_in_section(
         headings = _command_spans(entry, "resumeProjectHeading")
         if not headings:
             continue
-        heading_text = _normalized(headings[0].content)
+        heading_text = _project_heading_title(headings[0].content)
         emphasized_titles = {
             _normalized(span.content) for span in _command_spans(headings[0].content, "textbf")
         }

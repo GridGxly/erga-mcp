@@ -20,6 +20,7 @@ from erga_mcp.resumes.tailoring import (
     _compact_generated_entry_section,
     _experience_bullets_are_redundant,
     _infer_project_heading_contract,
+    _prefer_master_project_blocks,
     _project_heading_contract_issues,
     _projects_present_in_section,
     _record_lead_verb_rewrites,
@@ -571,6 +572,42 @@ Synthetic University
         )
         self.assertIn("\\textbf{Languages}: SQL, Python, Swift \\\\\n", tailored)
         self.assertIn("\\textbf{Tools/Platforms}: Docker, Git, Figma\n    }", tailored)
+
+    def test_linked_project_titles_match_their_inventory_blocks(self) -> None:
+        # Jake's template links the title and adds an icon macro; the inventory block cannot
+        # carry the macro, so proposals must reuse the master's own block by title.
+        master_section = (
+            "\n\\resumeSubHeadingListStart\n"
+            "  \\resumeProjectHeading\n"
+            "      {\\href{https://example.test/sensor}{Sensor Hub \\ExternalLink}}\n"
+            "      {C++, MCU}\n"
+            "  \\resumeItemListStart\n"
+            "    \\resumeItem{Built C++ firmware for approved MCU sensor control.}\n"
+            "  \\resumeItemListEnd\n"
+            "\\resumeSubHeadingListEnd\n"
+        )
+        candidate = ProjectCandidate(
+            id="sensor-hub",
+            title="Sensor Hub",
+            latex=(
+                "\\resumeProjectHeading\n"
+                "      {\\href{https://example.test/sensor}{Sensor Hub}}\n"
+                "      {C++, MCU}\n"
+                "  \\resumeItemListStart\n"
+                "    \\resumeItem{Built C++ firmware for approved MCU sensor control.}\n"
+                "  \\resumeItemListEnd\n"
+            ),
+            evidence_ids=("ev_sensor",),
+            bullet_evidence_ids=(("ev_sensor",),),
+            tags=("c++",),
+        )
+
+        (preferred,) = _prefer_master_project_blocks(master_section, (candidate,))
+        self.assertIn("\\ExternalLink", preferred.latex)
+        self.assertEqual(
+            [item.id for item in _projects_present_in_section(master_section, (candidate,))],
+            ["sensor-hub"],
+        )
 
     def test_adaptive_page_fill_prevents_elastic_whitespace_and_is_idempotent(self) -> None:
         compact = _SPARSE_TEMPLATE.replace("[10pt]", "[9pt]")
