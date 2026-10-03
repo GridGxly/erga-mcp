@@ -1250,8 +1250,11 @@ def _tailor_projects(section: str, job_description: str) -> tuple[str, list[_Ran
     return prefix + "".join(item[2] for item in ranked_entries) + suffix, claims, changed
 
 
+# A skill row's label carries its colon inside the bold (`\textbf{Languages:}`) or, as Jake's
+# template writes it, right after (`\textbf{Languages}:`).
+_SKILL_LABEL = r"\\textbf\{(?P<category>[^{}]+?)(?::\}|\}:)"
 _SKILL_LINE = re.compile(
-    r"^(?P<prefix>[ \t]*\\textbf\{(?P<category>[^{}]+):\}[ \t]*)"
+    rf"^(?P<prefix>[ \t]*{_SKILL_LABEL}[ \t]*)"
     r"(?P<values>.*?)(?P<suffix>[ \t]*(?:\\\\)?[ \t]*)$",
     re.MULTILINE,
 )
@@ -1933,9 +1936,7 @@ def semantic_resume_structure_issues(source: str) -> tuple[str, ...]:
     try:
         skills_start, skills_end, _ = _section_body(source, "Technical Skills")
         skills = source[skills_start:skills_end]
-        if not (
-            re.search(r"\\textbf\{[^{}]+:\}\s*[^%\\\n]", skills) or r"\resumeSkillRow{" in skills
-        ):
+        if not (re.search(rf"{_SKILL_LABEL}\s*[^%\\\n]", skills) or r"\resumeSkillRow{" in skills):
             issues.append("technical skills rows are missing")
     except ValueError:
         pass
