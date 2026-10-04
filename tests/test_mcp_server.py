@@ -962,6 +962,56 @@ Bottom of the approved master template.
         self.assertEqual([item.id for item in enrichment.candidates], ["beta", "alpha"])
         self.assertEqual([report["project_id"] for report in enrichment.reports], ["beta", "alpha"])
 
+    def test_git_research_targets_the_projects_the_proposal_will_select(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            resume = root / "resume.tex"
+            resume.write_text(
+                "\\begin{document}\n\\section{Projects}\n\\section{Technical Skills}\n"
+                "\\end{document}\n",
+                encoding="utf-8",
+            )
+            config_path = root / "config.toml"
+            config_path.write_text(
+                DEFAULT_CONFIG.replace("project_count = 4", "project_count = 1")
+                .replace("editable_sections = []", 'editable_sections = ["Projects"]')
+                .replace("project_min_bullets = 2", "project_min_bullets = 1"),
+                encoding="utf-8",
+            )
+            config = load_config(config_path)
+
+            def candidate(project_id: str, topic: str) -> ProjectCandidate:
+                evidence_id = f"ev_{project_id}"
+                return ProjectCandidate(
+                    id=project_id,
+                    title=project_id.title(),
+                    latex=(
+                        rf"\resumeProjectHeading{{\textbf{{{project_id.title()}}}}}{{}}"
+                        "\n\\resumeItemListStart\n"
+                        rf"\resumeItem{{Built an approved {topic} system for synthetic users.}}"
+                        "\n\\resumeItemListEnd\n"
+                    ),
+                    evidence_ids=(evidence_id,),
+                    bullet_evidence_ids=((evidence_id,),),
+                    tags=(topic,),
+                )
+
+            candidates = (candidate("alpha", "firmware"), candidate("beta", "kubernetes"))
+            with (
+                patch("erga_mcp.mcp.server._inventory_candidates", return_value=candidates),
+                patch("erga_mcp.mcp.server.discover_github_projects", return_value=()),
+                patch("erga_mcp.mcp.server.enrich_ranked_projects_from_git") as research,
+            ):
+                _git_enriched_inventory_candidates(
+                    config=config,
+                    store=ErgaStore(root / "state" / "erga.sqlite3"),
+                    evidence=[],
+                    job_description="Required: Kubernetes platform engineering",
+                    resume_path=resume,
+                )
+
+        self.assertEqual(research.call_args.kwargs["selected_project_ids"], ("beta",))
+
     def test_ai_layout_retry_lowers_the_cap_without_weakening_the_hard_minimum(self) -> None:
         with TemporaryDirectory() as directory:
             root = Path(directory)

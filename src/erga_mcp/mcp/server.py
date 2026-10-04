@@ -1282,7 +1282,10 @@ def _git_enriched_inventory_candidates(
                 project_count=config.resume.project_count,
                 maximum_characters=config.resume.bullet_max_chars,
                 require_unique_lead_verbs=config.resume.require_unique_lead_verbs,
-                preserve_candidate_order=True,
+                # Research the projects the proposal will pick (the same relevance selection
+                # it runs), not the catalogue's first entries; a catalogue larger than
+                # project_count otherwise had every intake research twice.
+                preserve_candidate_order=False,
             )
             selected_project_ids = tuple(candidate.id for candidate in selection_plan.selected)
     enrichment = enrich_ranked_projects_from_git(
